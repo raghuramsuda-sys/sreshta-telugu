@@ -185,6 +185,8 @@ var exams = {};
 try { exams = JSON.parse(localStorage.getItem(KEY + "_ex") || "{}"); } catch (e) { exams = {}; }
 var track = {};
 try { track = JSON.parse(localStorage.getItem(KEY + "_tr") || "{}"); } catch (e) { track = {}; }
+var letters = [];
+try { letters = JSON.parse(localStorage.getItem(KEY + "_lt") || "[]"); } catch (e) { letters = []; }
 function recTrack(L, kind, picked) {
   if (!L) return;
   var t = track[L] || (track[L] = { q: 0, m: 0, ea: 0, ew: 0, pick: {} });
@@ -193,7 +195,7 @@ function recTrack(L, kind, picked) {
 }
 var pcT = null;
 function pushCloudSoon() { if (pcT) return; pcT = setTimeout(function() { pcT = null; pushCloud(); }, 1500); }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); localStorage.setItem(KEY + "_ex", JSON.stringify(exams)); localStorage.setItem(KEY + "_tr", JSON.stringify(track)); } catch (e) {} }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); localStorage.setItem(KEY + "_ex", JSON.stringify(exams)); localStorage.setItem(KEY + "_tr", JSON.stringify(track)); localStorage.setItem(KEY + "_lt", JSON.stringify(letters)); } catch (e) {} }
 var curDay = null, step = 0, stars = 0, revealed = {}, selected = null, matched = 0, quizList = [], qr = 0, quizLock = false, openWeekN = null;
 function burst(x, y) {
   for (var i = 0; i < 7; i++) { var s = document.createElement("span"); s.className = "burst"; s.textContent = "\u2605";
@@ -256,6 +258,7 @@ function renderHome() {
       });
       h += "</div>";
       h += examCards(wk);
+      h += letterCard(wk);
     } else if (!weekUnlocked(wk)) {
       h += lockedWeekBox(wk);
     } else {
@@ -264,7 +267,7 @@ function renderHome() {
     h += "</div>";
   }
   h += "<div class='foramma'><b>For Amma:</b> one day at bedtime; let her tap and play herself \u2014 the voice is inside the page (Hear It). Open this same link every day, so the Completed marks stay.</div>";
-  h += "<p class='center' style='margin-top:6px'><button class='backlink' onclick='changeName()'>&#128100; " + esc(guestName || "Guest") + " \u2014 Change name</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin()'>&#128202; Nanna Status</button></p>";
+  h += "<p class='center' style='margin-top:6px'><button class='backlink' onclick='changeName()'>&#128100; " + esc(guestName || "Guest") + " \u2014 Change name</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button></p>";
   app().innerHTML = h; window.scrollTo(0,0);
 }
 function toggleWeek(n) { openWeekN = (openWeekN === n) ? null : n; renderHome(); }
@@ -415,6 +418,8 @@ function lockedDay(label, reason) {
 }
 /* ===== Guest name + cloud sync ===== */
 var ADMIN_PIN = "0033";
+var AMMA_PIN = "2580";
+var adminWho = "nanna";
 var guestName = null, guestSlug = null, cloudObj = null, pendingSave = null, cloudLoaded = false, adminCache = [];
 try { guestName = localStorage.getItem("stg_name"); } catch (e) {}
 function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -429,7 +434,7 @@ window.__setCloud = function(o) {
 };
 function pushCloud() {
   if (!guestSlug) return;
-  var payload = { name: guestName, days: store, exams: exams, stats: track, totalStars: grandTotal(), resetAt: (function() { try { return localStorage.getItem(KEY + "_rs") || null; } catch (e) { return null; } })(), lastPlayed: new Date().toISOString() };
+  var payload = { name: guestName, days: store, exams: exams, stats: track, letters: letters, totalStars: grandTotal(), resetAt: (function() { try { return localStorage.getItem(KEY + "_rs") || null; } catch (e) { return null; } })(), lastPlayed: new Date().toISOString() };
   if (cloudObj) cloudObj.save(guestSlug, payload).catch(function(){});
   else pendingSave = { slug: guestSlug, payload: payload };
 }
@@ -441,7 +446,7 @@ function pullCloud() {
       var seenRs = "";
       try { seenRs = localStorage.getItem(KEY + "_rs") || ""; } catch (e) {}
       if (String(d.resetAt) > seenRs) {
-        store = {}; exams = {}; track = {};
+        store = {}; exams = {}; track = {}; letters = [];
         try { localStorage.setItem(KEY + "_rs", String(d.resetAt)); } catch (e) {}
         save(); pushCloud();
         if (!curDay && !examCur) renderHome();
@@ -477,6 +482,12 @@ function pullCloud() {
         }
       }
     }
+    if (d.letters && d.letters.length) {
+      var seenTs = {};
+      letters.forEach(function(l) { seenTs[l.ts] = 1; });
+      d.letters.forEach(function(l) { if (l && l.ts && !seenTs[l.ts]) { letters.push(l); changed = true; } });
+      letters.sort(function(a, b) { return (a.ts || 0) - (b.ts || 0); });
+    }
     if (changed) { save(); pushCloud(); if (!curDay && !examCur) renderHome(); }
   }).catch(function(){});
 }
@@ -497,7 +508,7 @@ function renderNameScreen() {
     + "<div class='center'><input id='gname' type='text' placeholder='Your name' autocomplete='off' style='font-family:inherit;font-size:21px;font-weight:700;padding:13px 16px;border:3px solid #191930;border-radius:14px;width:82%;text-align:center;margin-top:12px'>"
     + "<div class='feedback' id='namefb'></div>"
     + "<button class='btn green' onclick='startWithName()'>Start Playing &#9654;</button>"
-    + "<p style='margin-top:20px'><button class='backlink' onclick='renderPin()'>&#128202; Nanna Status</button></p></div>";
+    + "<p style='margin-top:20px'><button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button></p></div>";
   app().innerHTML = h; window.scrollTo(0, 0);
   var inp = document.getElementById("gname");
   inp.addEventListener("keydown", function(e) { if (e.key === "Enter") startWithName(); });
@@ -509,9 +520,11 @@ function startWithName() {
   setGuest(v); lockNote = ""; renderHome();
 }
 /* ===== Nanna Status (admin) ===== */
-function renderPin() {
+function renderPin(who) {
+  adminWho = (who === "amma") ? "amma" : "nanna";
+  var nm = adminWho === "amma" ? "Amma" : "Nanna";
   var h = "<button class='backlink' onclick='goHome()'>&#8592; Back</button>"
-    + "<h2 style='margin-top:10px'>&#128202; Nanna Status</h2><p class='sub'>Enter your 4-digit PIN</p>"
+    + "<h2 style='margin-top:10px'>&#128202; " + nm + " Status</h2><p class='sub'>Enter your 4-digit PIN</p>"
     + "<div class='center'><input id='pin' type='tel' maxlength='4' placeholder='PIN' autocomplete='off' style='font-family:inherit;font-size:24px;font-weight:900;letter-spacing:8px;padding:12px 16px;border:3px solid #191930;border-radius:14px;width:60%;text-align:center;margin-top:12px'>"
     + "<div class='feedback' id='pinfb'></div>"
     + "<button class='btn' onclick='checkPin()'>See Status</button></div>";
@@ -520,7 +533,7 @@ function renderPin() {
 function goHome() { if (guestName) renderHome(); else renderNameScreen(); }
 function checkPin() {
   var v = document.getElementById("pin").value.trim();
-  if (v === ADMIN_PIN) renderAdminList();
+  if (v === (adminWho === "amma" ? AMMA_PIN : ADMIN_PIN)) renderAdminList();
   else document.getElementById("pinfb").textContent = "Wrong PIN \u2014 try again";
 }
 function waitCloud(cb) {
@@ -552,7 +565,7 @@ function resetGuest(slug, btn) {
   btn.disabled = true; btn.textContent = "Resetting...";
   var nm = slug;
   for (var i = 0; i < adminCache.length; i++) if (adminCache[i].id === slug) nm = adminCache[i].name || slug;
-  cloudObj.save(slug, { name: nm, days: {}, exams: {}, stats: {}, totalStars: 0, resetAt: new Date().toISOString(), lastPlayed: new Date().toISOString() }).then(function() {
+  cloudObj.save(slug, { name: nm, days: {}, exams: {}, stats: {}, letters: [], totalStars: 0, resetAt: new Date().toISOString(), lastPlayed: new Date().toISOString() }).then(function() {
     toast(nm + " reset - fresh start!");
     try { renderAdminList(); } catch (e) {}
   }).catch(function() { btn.disabled = false; btn.textContent = "Failed - try again"; });
@@ -592,6 +605,13 @@ function renderAdminDetail(i) {
     });
     h += "</div>";
   });
+  var plLetters = (pl.letters || []).filter(function(l) { return (l.to || "nanna") === adminWho; }).slice().sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+  h += "<div class='wpanel'><span class='wt2'>\uD83D\uDC8C Letters to " + (adminWho === "amma" ? "Amma" : "Nanna") + "</span>";
+  if (!plLetters.length) h += "<p class='sub' style='margin-top:6px'>No letters yet. Letters unlock when a week is fully finished \u2014 all days, Weekly Exam and all Exam Zone exams.</p>";
+  plLetters.forEach(function(l) {
+    h += "<div style='background:#FFF7E0;border:2.5px solid #191930;border-radius:10px;padding:9px 11px;margin:6px 0;font-size:15px'><b>Week " + l.week + "</b> <span style='color:#6A6A85'>\u2014 " + fmtDate(l.ts ? new Date(l.ts).toISOString() : null) + "</span><br>" + esc(l.text || "") + "</div>";
+  });
+  h += "</div>";
   h += deepReport(pl);
   if (pl.exams) {
     h += "<div class='wpanel'><span class='wt2'>&#128221; Exams</span>";
@@ -602,6 +622,71 @@ function renderAdminDetail(i) {
     h += "</div>";
   }
   app().innerHTML = h; window.scrollTo(0, 0);
+}
+
+
+/* ===== Letters to Nanna & Amma (unlock when the week is FULLY complete; she writes on her own) ===== */
+function letterState(wk) {
+  var daysDone = 0;
+  if (wk.days) wk.days.forEach(function(d) { if (store[d.id] && store[d.id].done) daysDone++; });
+  var weekly = null;
+  EXAMS.forEach(function(e) { if (e.week === wk.n && !e.zone && !e.read && e.title.indexOf("Weekly") === 0) weekly = e; });
+  var weeklyOk = !!(weekly && exams[weekly.id] && exams[weekly.id].passed);
+  var missing = [];
+  if (wk.days && daysDone < wk.days.length) missing.push("Days (" + daysDone + "/" + wk.days.length + ")");
+  if (!weeklyOk) missing.push("Weekly Exam");
+  EXAMS.forEach(function(e) {
+    if (e.week === wk.n && e.zone) {
+      var r = exams[e.id];
+      if (!r || !(r.tries > 0)) missing.push(e.title.replace(/^[^A-Za-z]+/, ""));
+    }
+  });
+  return { unlocked: missing.length === 0, missing: missing };
+}
+function letterCardOne(wk, to) {
+  var nm = to === "amma" ? "Amma" : "Nanna";
+  var mine = letters.filter(function(l) { return l.week === wk.n && (l.to || "nanna") === to; });
+  if (mine.length) {
+    var last = mine[mine.length - 1];
+    return "<div class='daycard' style='margin-top:8px;border-color:#1E9E62;cursor:default'><span class='dtop'><span class='daynum' style='background:#1E9E62;color:#fff'>\u2709\uFE0F Letter to " + nm + "</span><span class='badge done'>Sent \u2713</span></span><span class='dayinfo'><span class='t'>" + nm + " got your Week " + wk.n + " letter! \uD83D\uDC8C</span><br><span class='l' style='font-size:13px'>Sent on " + new Date(last.ts).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) + "</span></span></div>"
+      + "<button class='btn' style='background:#FFD166;color:#191930;margin-top:8px' onclick='openLetter(" + wk.n + ", \"" + to + "\")'>\u270F\uFE0F Write Another Letter to " + nm + "</button>";
+  }
+  return "<button class='daycard' style='margin-top:8px;border-color:#B3541E' onclick='openLetter(" + wk.n + ", \"" + to + "\")'><span class='dtop'><span class='daynum' style='background:#FF9F1C;color:#332300'>\u2709\uFE0F Letter to " + nm + "</span><span class='badge' style='background:#FFD166;color:#332300'>Unlocked!</span></span><span class='dayinfo'><span class='t'>Tap to write to " + nm + " \u2014 in your own words, on your own \uD83D\uDC9B</span><br><span class='l' style='font-size:13px'>Telugu, English, mix \u2014 anything from your heart</span></span></button>";
+}
+function letterCard(wk) {
+  if (!wk.days) return "";
+  var st = letterState(wk);
+  var head = "<p class='sub' style='margin-top:16px;font-weight:900'>\uD83D\uDC8C LETTERS \u2014 the week's big prize!</p>";
+  if (!st.unlocked) {
+    return head + "<div class='daycard' style='margin-top:8px;opacity:.8;cursor:default'><span class='dtop'><span class='daynum' style='background:#C9C9D6;color:#191930'>\u2709\uFE0F Letters to Nanna &amp; Amma</span><span class='badge soon'>&#128274;</span></span><span class='dayinfo'><span class='t'>Finish EVERYTHING in this week to unlock your letters!</span><br><span class='l' style='font-size:13px'>Still to do: " + st.missing.join(" \u2022 ") + "</span></span></div>";
+  }
+  return head + letterCardOne(wk, "nanna") + letterCardOne(wk, "amma");
+}
+function openLetter(n, to) {
+  curDay = null;
+  var nm = to === "amma" ? "Amma" : "Nanna";
+  var where = to === "amma" ? "Amma will find it in her Amma Status. \uD83D\uDC9B" : "It will fly to Nanna in America. \u2708\uFE0F";
+  var h = "<button class='backlink' onclick='goHome()'>&#8592; Back</button>"
+    + "<h1>\u2709\uFE0F My Letter to " + nm + "</h1>"
+    + "<p class='sub'>Week " + n + " finished \u2014 superb! Write on your own, in your own words.<br>Telugu, English, mix \u2014 from your heart. " + where + "<br><span style='font-size:13.5px'>Amma, please don't correct it \u2014 mistakes are okay here!</span></p><div class='strip'></div>"
+    + "<textarea id='lettertext' rows='8' placeholder='Dear " + nm + "...' style='font-family:inherit;font-size:18px;font-weight:600;padding:13px 15px;border:3px solid #191930;border-radius:14px;width:92%;margin-top:12px;line-height:1.5'></textarea>"
+    + "<div class='feedback' id='letterfb'></div>"
+    + "<button class='btn green' onclick='sendLetter(" + n + ", \"" + to + "\")'>\uD83D\uDCE9 Send to " + nm + "</button>";
+  app().innerHTML = h; window.scrollTo(0, 0);
+  var ta = document.getElementById("lettertext"); if (ta) ta.focus();
+}
+function sendLetter(n, to) {
+  var ta = document.getElementById("lettertext");
+  var text = ta ? ta.value.trim() : "";
+  if (!text) { document.getElementById("letterfb").innerHTML = "<span class='bad'>Write something first \u2014 even one line! \uD83D\uDE0A</span>"; return; }
+  var nm = to === "amma" ? "Amma" : "Nanna";
+  letters.push({ week: n, to: to, text: text, ts: Date.now() });
+  save(); pushCloud();
+  app().innerHTML = "<div class='bigstar'>\uD83D\uDC8C</div><h1>Sent to " + nm + "!</h1>"
+    + "<p class='sub'>" + (to === "amma" ? "Amma will open her Amma Status and find your letter! \uD83D\uDC9B" : "Your letter flew all the way to America! Nanna will read it and smile. \uD83D\uDE0A") + "</p><div class='strip'></div>"
+    + "<div class='wpanel' style='text-align:left'><span class='wt2'>Your letter</span><p style='font-size:16.5px;line-height:1.55;margin-top:6px'>" + esc(text) + "</p></div>"
+    + "<button class='btn green' onclick='goHome()'>Home</button>";
+  window.scrollTo(0, 0);
 }
 
 /* ===== Exams (70% pass gates) ===== */
