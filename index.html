@@ -284,6 +284,22 @@ function todayISO() { var d = new Date(); function p(n){ return (n<10?"0":"")+n;
 function dots(total, on) { var h = "<div class='dots'>"; for (var i=0;i<total;i++) h += "<span class='"+(i===on?"on":"")+"'></span>"; return h+"</div>"; }
 var app = function() { return document.getElementById("app"); };
 function weekDone(wk) { return wk.days && wk.days.every(function(d){ return store[d.id] && store[d.id].done; }) && examPassed("w" + wk.n + "e3"); }
+function weekCompletedAt(wk) {
+  if (!weekDone(wk)) return 0;
+  var t = 0;
+  wk.days.forEach(function(d) { var r = store[d.id]; if (r && r.ts) t = Math.max(t, r.ts); });
+  var er = exams["w" + wk.n + "e3"]; if (er && er.ts) t = Math.max(t, er.ts);
+  return t;
+}
+/* Ram's gap rule (16 Oct): after a week is finished, the next week opens on the 3rd day
+   (two rest days between). Nanna can still open it instantly by approving her Ask request. */
+function weekOpenDate(wk) {
+  var prev = WEEKS[wk.n - 2]; if (!prev || !prev.days) return 0;
+  var ct = weekCompletedAt(prev); if (!ct) return 0;
+  var d = new Date(ct); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 3);
+  return d.getTime();
+}
+function fmtOpenDate(ms) { try { return new Date(ms).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }); } catch (e) { return ""; } }
 function weekStars(wk) { if (!wk.days) return 0; return wk.days.reduce(function(t,d){ return t + ((store[d.id]||{}).stars || 0); }, 0); }
 function activeWeekN() {
   for (var i = 0; i < WEEKS.length; i++) { var w = WEEKS[i]; if (w.days && !weekDone(w) && weekUnlocked(w)) return w.n; }
@@ -474,7 +490,10 @@ function weekUnlocked(wk) {
   if (unlocks["w" + wk.n]) return true;
   var prev = WEEKS[wk.n - 2];
   if (!prev || !prev.days) return false;
-  return weekDone(prev);
+  if (!weekDone(prev)) return false;
+  var od = weekOpenDate(wk);
+  if (!od) return true;
+  return Date.now() >= od;
 }
 function askUnlock(n) {
   reqs["w" + n] = Date.now(); save(); pushCloud();
@@ -505,6 +524,8 @@ function lockedDay(label, reason) {
 var ADMIN_PIN = "0033";
 var AMMA_PIN = "2208";
 var adminWho = "nanna";
+var adminOpenW = 0;
+function toggleAdminWeek(i, n) { adminOpenW = (adminOpenW === n) ? 0 : n; renderAdminDetail(i); }
 var guestName = null, guestSlug = null, cloudObj = null, pendingSave = null, cloudLoaded = false, adminCache = [];
 try { guestName = localStorage.getItem("stg_name"); } catch (e) {}
 function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -705,33 +726,41 @@ function renderAdminDetail(i) {
     });
     h += "</div>";
   }
+  var plLetters = (pl.letters || []).filter(function(l) { return (l.to || "nanna") === adminWho; }).slice().sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
   WEEKS.forEach(function(wk) {
     if (!wk.days) return;
-    h += "<div class='wpanel'><span class='wt2'>Week " + wk.n + " \u2014 " + wk.title + "</span>";
+    var dDone = wk.days.filter(function(d) { return pl.days && pl.days[d.id] && pl.days[d.id].done; }).length;
+    var wexr = pl.exams && pl.exams["w" + wk.n + "e3"];
+    var wDone = dDone === wk.days.length && !!(wexr && wexr.passed);
+    var wStars = 0;
+    wk.days.forEach(function(d) { var r = pl.days && pl.days[d.id]; if (r) wStars += (r.stars || 0); });
+    EXAMS.forEach(function(ex) { if (ex.week === wk.n) { var r2 = pl.exams && pl.exams[ex.id]; if (r2) wStars += (r2.stars || 0); } });
+    var open = adminOpenW === wk.n;
+    h += "<button class='daycard' style='margin:10px 0 4px;width:100%;text-align:left;cursor:pointer' onclick='toggleAdminWeek(" + i + ", " + wk.n + ")'><span class='dtop'><span style='font-weight:900;font-size:17px'>Week " + wk.n + " \u2014 " + wk.title + "</span><span class='badge " + (wDone ? "done" : "soon") + "'>" + (wDone ? "&#10003; Done" : (open ? "Hide \u25B2" : "Details \u25BC")) + "</span></span>"
+      + "<span class='dayinfo'><span class='t'>Days: <b>" + dDone + " of " + wk.days.length + "</b> \u2022 Weekly Exam: <b>" + (wexr && wexr.passed ? "Passed \u2713 (" + wexr.best + "%)" : "not passed yet") + "</b></span><br><span class='l' style='font-size:13px'>Stars this week: &#9733; " + wStars + " \u2022 Letters: " + plLetters.filter(function(l) { return l.week === wk.n; }).length + "</span></span></button>";
+    if (!open) return;
+    h += "<div class='wpanel'>";
     wk.days.forEach(function(d) {
       var rec = pl.days && pl.days[d.id];
       h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'>"
         + "<span><b>" + d.label + "</b> \u2014 " + d.title + "</span>"
         + "<span>" + (rec && rec.done ? "<b style='color:#146C43'>&#10003; &#9733;" + (rec.stars || 0) + "</b>" : "<span style='color:#6A6A85'>Not yet</span>") + "</span></div>";
     });
-    h += "</div>";
-  });
-  var plLetters = (pl.letters || []).filter(function(l) { return (l.to || "nanna") === adminWho; }).slice().sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
-  h += "<div class='wpanel'><span class='wt2'>\uD83D\uDC8C Letters to " + (adminWho === "amma" ? "Amma" : "Nanna") + "</span>";
-  if (!plLetters.length) h += "<p class='sub' style='margin-top:6px'>No letters yet. Letters unlock when a week is fully finished \u2014 all days, Weekly Exam and all Exam Zone exams.</p>";
-  plLetters.forEach(function(l) {
-    h += "<div style='background:#FFF7E0;border:2.5px solid #191930;border-radius:10px;padding:9px 11px;margin:6px 0;font-size:15px'><b>Week " + l.week + "</b> <span style='color:#6A6A85'>\u2014 " + fmtDate(l.ts ? new Date(l.ts).toISOString() : null) + "</span><br>" + esc(l.text || "") + "</div>";
-  });
-  h += "</div>";
-  h += deepReport(pl);
-  if (pl.exams) {
-    h += "<div class='wpanel'><span class='wt2'>&#128221; Exams</span>";
+    h += "<p style='margin:10px 0 2px'><b>&#128221; Exams \u2014 Week " + wk.n + "</b></p>";
     EXAMS.forEach(function(ex) {
-      var r = pl.exams[ex.id];
+      if (ex.week !== wk.n) return;
+      var r = pl.exams && pl.exams[ex.id];
       h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'><span><b>" + ex.title + "</b> \u2014 " + ex.sub + "</span><span>" + (r ? (ex.read ? "<b style='color:#146C43'>Read \u2713 \u00D7" + (r.tries || 1) + "</b>" : (r.passed ? "<b style='color:#146C43'>Passed \u2014 " + r.best + "%</b>" : "<span style='color:#B3541E'>Best " + r.best + "%</span>")) : "<span style='color:#6A6A85'>Not taken</span>") + "</span></div>";
     });
+    h += "<p style='margin:10px 0 2px'><b>\uD83D\uDC8C Letters \u2014 Week " + wk.n + "</b></p>";
+    var wl = plLetters.filter(function(l) { return l.week === wk.n; });
+    if (!wl.length) h += "<p class='sub'>No letters this week yet. Letters unlock when the week is fully finished.</p>";
+    wl.forEach(function(l) {
+      h += "<div style='background:#FFF7E0;border:2.5px solid #191930;border-radius:10px;padding:9px 11px;margin:6px 0;font-size:15px'><b>Week " + l.week + "</b> <span style='color:#6A6A85'>\u2014 " + fmtDate(l.ts ? new Date(l.ts).toISOString() : null) + "</span><br>" + esc(l.text || "") + "</div>";
+    });
     h += "</div>";
-  }
+  });
+  h += deepReport(pl);
   app().innerHTML = h; window.scrollTo(0, 0);
 }
 
@@ -1040,6 +1069,11 @@ function lockedWeekBox(wk) {
   var reqPart = reqs["w" + wk.n]
     ? "<br><b style='color:#146C43'>&#10003; Your request was sent to Nanna \u2014 waiting for his approval \uD83D\uDC9B</b>"
     : "<br><button class='btn' style='background:#FFD166;color:#191930;margin-top:10px' onclick='askUnlock(" + wk.n + ")'>\uD83D\uDE4F Ask Nanna to Unlock Week " + wk.n + "</button>";
+  var prev = WEEKS[wk.n - 2];
+  if (prev && prev.days && weekDone(prev)) {
+    var od = weekOpenDate(wk);
+    return "<div class='soonbox'>&#127881; <b>You finished Week " + prev.n + "!</b><br>Week " + wk.n + " opens on <b>" + (od ? fmtOpenDate(od) : "its start date") + "</b> \u2014 two rest days first \uD83D\uDC9B<br>" + wk.summary + "<br><span style='font-size:14px'>Want it sooner?</span>" + reqPart + "</div>";
+  }
   return "<div class='soonbox'>&#128274; <b>Week " + wk.n + " is locked.</b><br>Complete <b>Week " + (wk.n - 1) + "</b> first \u2014 all days + pass the <b>Weekly Exam (70% or more)</b>." + prevWeekProgress(wk) + "<br>" + wk.summary + reqPart + "</div>";
 }
 function weekStartStr(wk) {
