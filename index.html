@@ -626,7 +626,9 @@ var ADMIN_PIN = "0033";
 var AMMA_PIN = "2208";
 var adminWho = "nanna";
 var adminOpenW = 0;
-function toggleAdminWeek(i, n) { adminOpenW = (adminOpenW === n) ? 0 : n; renderAdminDetail(i); }
+function toggleAdminWeek(i, n) { adminOpenW = n; renderAdminDetail(i); }
+function closeAdminWeek(i) { adminOpenW = 0; renderAdminDetail(i); }
+function openGuest(i) { adminOpenW = 0; renderAdminDetail(i); }
 var guestName = null, guestSlug = null, cloudObj = null, pendingSave = null, cloudLoaded = false, adminCache = [];
 try { guestName = localStorage.getItem("stg_name"); } catch (e) {}
 function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -801,7 +803,7 @@ function renderAdminList() {
         + "<p class='sub'>" + adminCache.length + " guest(s) so far. Tap a name for full status.</p>";
       if (!adminCache.length) h += "<p class='sub' style='margin-top:14px'>Nobody has played yet.</p>";
       adminCache.forEach(function(pl, i) {
-        h += "<button class='daycard' style='margin:8px 0' onclick='renderAdminDetail(" + i + ")'><span class='dtop'><span style='font-weight:900;font-size:18px'>" + esc(pl.name || pl.id) + "</span><span class='badge done'>&#9733; " + (pl.totalStars || 0) + "</span></span>"
+        h += "<button class='daycard' style='margin:8px 0' onclick='openGuest(" + i + ")'><span class='dtop'><span style='font-weight:900;font-size:18px'>" + esc(pl.name || pl.id) + "</span><span class='badge done'>&#9733; " + (pl.totalStars || 0) + "</span></span>"
           + "<span class='dayinfo'><span class='t'>Weeks completed: " + weeksDoneOf(pl) + " of 10</span><br><span class='l' style='font-size:13px'>Last played: " + fmtDate(pl.lastPlayed) + "</span>" + ((pl.reqs && Object.keys(pl.reqs).length) ? "<br><b style='color:#B3541E'>\uD83D\uDD14 Asked to unlock: " + Object.keys(pl.reqs).map(function(k) { return "Week " + k.slice(1); }).join(", ") + "</b>" : "") + "</span></button>"
           + "<div style='text-align:right;margin:-4px 0 12px'><button onclick='resetGuest(\"" + pl.id + "\", this)' style='background:#fff;color:#C62828;border:2px solid #C62828;border-radius:999px;padding:4px 14px;font-weight:800;font-size:13px;cursor:pointer'>Reset progress</button></div>";
       });
@@ -830,6 +832,7 @@ function dismissReq(i, k) {
 }
 function renderAdminDetail(i) {
   var pl = adminCache[i]; if (!pl) return;
+  if (adminOpenW) { renderAdminWeek(i, adminOpenW); return; }
   var h = "<button class='backlink' onclick='renderAdminList()'>&#8592; All Guests</button>"
     + "<h2>" + esc(pl.name || pl.id) + "</h2>"
     + "<p class='sub'>Total stars: <b>&#9733; " + (pl.totalStars || 0) + "</b><br>Weeks completed: <b>" + weeksDoneOf(pl) + " of 10</b><br>Last played: " + fmtDate(pl.lastPlayed) + "</p>";
@@ -849,35 +852,57 @@ function renderAdminDetail(i) {
     var wStars = 0;
     wk.days.forEach(function(d) { var r = pl.days && pl.days[d.id]; if (r) wStars += (r.stars || 0); });
     EXAMS.forEach(function(ex) { if (ex.week === wk.n) { var r2 = pl.exams && pl.exams[ex.id]; if (r2) wStars += (r2.stars || 0); } });
-    var open = adminOpenW === wk.n;
-    h += "<button class='daycard' style='margin:10px 0 4px;width:100%;text-align:left;cursor:pointer' onclick='toggleAdminWeek(" + i + ", " + wk.n + ")'><span class='dtop'><span style='font-weight:900;font-size:17px'>Week " + wk.n + " \u2014 " + wk.title + "</span><span style='display:flex;align-items:center;gap:8px'>" + (wDone ? "<span class='badge done'>&#10003; Done</span>" : "") + "<span style='font-size:19px;font-weight:900;color:#8A8AA3;line-height:1;display:inline-block;transition:transform .15s" + (open ? ";transform:rotate(90deg)" : "") + "'>&#10095;</span></span></span>"
+    h += "<button class='daycard' style='margin:10px 0 4px;width:100%;text-align:left;cursor:pointer' onclick='toggleAdminWeek(" + i + ", " + wk.n + ")'><span class='dtop'><span style='font-weight:900;font-size:17px'>Week " + wk.n + " \u2014 " + wk.title + "</span><span style='display:flex;align-items:center;gap:8px'>" + (wDone ? "<span class='badge done'>&#10003; Done</span>" : "") + "<span style='font-size:19px;font-weight:900;color:#8A8AA3;line-height:1;display:inline-block;transition:transform .15s" + "" + "'>&#10095;</span></span></span>"
       + "<span class='dayinfo'><span class='t'>Days: <b>" + dDone + " of " + wk.days.length + "</b> \u2022 Weekly Exam: <b>" + (wexr && wexr.passed ? "Passed \u2713 (" + wexr.best + "%)" : "not passed yet") + "</b></span><br><span class='l' style='font-size:13px'>Stars this week: &#9733; " + wStars + " \u2022 Letters: " + plLetters.filter(function(l) { return l.week === wk.n; }).length + "</span></span></button>";
-    if (!open) return;
-    h += "<div class='wpanel'>";
-    wk.days.forEach(function(d) {
-      var rec = pl.days && pl.days[d.id];
-      h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'>"
-        + "<span><b>" + d.label + "</b> \u2014 " + d.title + "</span>"
-        + "<span>" + (rec && rec.done ? "<b style='color:#146C43'>&#10003; &#9733;" + (rec.stars || 0) + "</b>" : "<span style='color:#6A6A85'>Not yet</span>") + "</span></div>";
-    });
-    h += "<p style='margin:10px 0 2px'><b>&#128221; Exams \u2014 Week " + wk.n + "</b></p>";
-    EXAMS.forEach(function(ex) {
-      if (ex.week !== wk.n) return;
-      var r = pl.exams && pl.exams[ex.id];
-      h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'><span><b>" + ex.title + "</b> \u2014 " + ex.sub + "</span><span>" + (r ? (ex.read ? "<b style='color:#146C43'>Read \u2713 \u00D7" + (r.tries || 1) + "</b>" : (r.passed ? "<b style='color:#146C43'>Passed \u2014 " + r.best + "%</b>" : "<span style='color:#B3541E'>Best " + r.best + "%</span>")) : "<span style='color:#6A6A85'>Not taken</span>") + "</span></div>";
-    });
-    h += "<p style='margin:10px 0 2px'><b>\uD83D\uDC8C Letters \u2014 Week " + wk.n + "</b></p>";
-    var wl = plLetters.filter(function(l) { return l.week === wk.n; });
-    if (!wl.length) h += "<p class='sub'>No letters this week yet. Letters unlock when the week is fully finished.</p>";
-    wl.forEach(function(l) {
-      h += "<div style='background:#FFF7E0;border:2.5px solid #191930;border-radius:10px;padding:9px 11px;margin:6px 0;font-size:15px'><b>Week " + l.week + "</b> <span style='color:#6A6A85'>\u2014 " + fmtDate(l.ts ? new Date(l.ts).toISOString() : null) + "</span><br>" + esc(l.text || "") + "</div>";
-    });
-    h += weekDeepReport(pl, wk);
-    h += "</div>";
   });
   app().innerHTML = h; window.scrollTo(0, 0);
 }
 
+
+function renderAdminWeek(i, n) {
+  var pl = adminCache[i]; if (!pl) return;
+  var wk = null;
+  WEEKS.forEach(function(w) { if (w.n === n) wk = w; });
+  if (!wk || !wk.days) { closeAdminWeek(i); return; }
+  var plLetters = (pl.letters || []).filter(function(l) { return (l.to || "nanna") === adminWho; }).slice().sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+  var dDone = wk.days.filter(function(d) { return pl.days && pl.days[d.id] && pl.days[d.id].done; }).length;
+  var wexr = pl.exams && pl.exams["w" + wk.n + "e3"];
+  var wDone = dDone === wk.days.length && !!(wexr && wexr.passed);
+  var wStars = 0;
+  wk.days.forEach(function(d) { var r = pl.days && pl.days[d.id]; if (r) wStars += (r.stars || 0); });
+  EXAMS.forEach(function(ex) { if (ex.week === wk.n) { var r2 = pl.exams && pl.exams[ex.id]; if (r2) wStars += (r2.stars || 0); } });
+  var navBtn = "background:#fff;border:2.5px solid #191930;border-radius:999px;padding:8px 15px;font-weight:900;font-size:14.5px;cursor:pointer;color:#191930";
+  var h = "<button class='backlink' onclick='closeAdminWeek(" + i + ")'>&#8592; All Weeks</button>"
+    + "<h2>Week " + wk.n + " \u2014 " + wk.title + "</h2>"
+    + "<p class='sub'>" + esc(pl.name || pl.id) + (wDone ? " \u2022 <b style='color:#146C43'>\u2713 Week Done</b>" : "") + "<br>Days: <b>" + dDone + " of " + wk.days.length + "</b> \u2022 Weekly Exam: <b>" + (wexr && wexr.passed ? "Passed \u2713 (" + wexr.best + "%)" : "not passed yet") + "</b><br>Stars this week: <b>&#9733; " + wStars + "</b> \u2022 Letters: " + plLetters.filter(function(l) { return l.week === wk.n; }).length + "</p>"
+    + "<div class='wpanel'>";
+  wk.days.forEach(function(d) {
+    var rec = pl.days && pl.days[d.id];
+    h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'>"
+      + "<span><b>" + d.label + "</b> \u2014 " + d.title + "</span>"
+      + "<span>" + (rec && rec.done ? "<b style='color:#146C43'>&#10003; &#9733;" + (rec.stars || 0) + "</b>" : "<span style='color:#6A6A85'>Not yet</span>") + "</span></div>";
+  });
+  h += "<p style='margin:10px 0 2px'><b>&#128221; Exams \u2014 Week " + wk.n + "</b></p>";
+  EXAMS.forEach(function(ex) {
+    if (ex.week !== wk.n) return;
+    var r = pl.exams && pl.exams[ex.id];
+    h += "<div style='display:flex;justify-content:space-between;background:#fff;border:2.5px solid #191930;border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14.5px'><span><b>" + ex.title + "</b> \u2014 " + ex.sub + "</span><span>" + (r ? (ex.read ? "<b style='color:#146C43'>Read \u2713 \u00D7" + (r.tries || 1) + "</b>" : (r.passed ? "<b style='color:#146C43'>Passed \u2014 " + r.best + "%</b>" : "<span style='color:#B3541E'>Best " + r.best + "%</span>")) : "<span style='color:#6A6A85'>Not taken</span>") + "</span></div>";
+  });
+  h += "<p style='margin:10px 0 2px'><b>\uD83D\uDC8C Letters \u2014 Week " + wk.n + "</b></p>";
+  var wl = plLetters.filter(function(l) { return l.week === wk.n; });
+  if (!wl.length) h += "<p class='sub'>No letters this week yet. Letters unlock when the week is fully finished.</p>";
+  wl.forEach(function(l) {
+    h += "<div style='background:#FFF7E0;border:2.5px solid #191930;border-radius:10px;padding:9px 11px;margin:6px 0;font-size:15px'><b>Week " + l.week + "</b> <span style='color:#6A6A85'>\u2014 " + fmtDate(l.ts ? new Date(l.ts).toISOString() : null) + "</span><br>" + esc(l.text || "") + "</div>";
+  });
+  h += weekDeepReport(pl, wk);
+  h += "</div>";
+  h += "<div style='display:flex;justify-content:space-between;gap:8px;margin:14px 0 4px'>"
+    + (wk.n > 1 ? "<button style='" + navBtn + "' onclick='toggleAdminWeek(" + i + ", " + (wk.n - 1) + ")'>&#10094; Week " + (wk.n - 1) + "</button>" : "<span></span>")
+    + "<button style='" + navBtn + "' onclick='closeAdminWeek(" + i + ")'>All Weeks</button>"
+    + (wk.n < 10 ? "<button style='" + navBtn + "' onclick='toggleAdminWeek(" + i + ", " + (wk.n + 1) + ")'>Week " + (wk.n + 1) + " &#10095;</button>" : "<span></span>")
+    + "</div>";
+  app().innerHTML = h; window.scrollTo(0, 0);
+}
 
 /* ===== Letters to Nanna & Amma (unlock when the week is FULLY complete; she writes on her own) ===== */
 function letterState(wk) {
