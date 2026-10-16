@@ -456,7 +456,7 @@ function renderHome() {
     h += "</div>";
   }
   h += "<div class='foramma'><b>For Amma:</b> one day at bedtime; let her tap and play herself \u2014 the voice is inside the page (Hear It). Open this same link every day, so the Completed marks stay.</div>";
-  h += "<p class='center' style='margin-top:6px'><button class='backlink' onclick='changeName()'>&#128100; " + esc(guestName || "Guest") + " \u2014 Change name</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button></p>";
+  h += "<p class='center' style='margin-top:6px'><button class='backlink' onclick='changeName()'>&#128100; " + esc(guestName || "Guest") + " \u2014 Change name</button>" + (hideStatusForHer() ? "" : " &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button>") + "</p>";
   app().innerHTML = h; window.scrollTo(0,0);
 }
 function toggleWeek(n) { openWeekN = (openWeekN === n) ? null : n; renderHome(); }
@@ -715,9 +715,15 @@ function pullCloud() {
     if (changed) { save(); pushCloud(); if (!curDay && !examCur) renderHome(); }
   }).catch(function(){});
 }
+function hideStatusForHer() {
+  if (guestSlug === "sreshta") return true;
+  var ln = "";
+  try { ln = localStorage.getItem("stg_last") || localStorage.getItem("stg_name") || ""; } catch (e) {}
+  return slugify(ln) === "sreshta";
+}
 function setGuest(n) {
   guestName = n;
-  try { localStorage.setItem("stg_name", n); } catch (e) {}
+  try { localStorage.setItem("stg_name", n); localStorage.setItem("stg_last", n); } catch (e) {}
   guestSlug = slugify(n) || "guest";
   if (cloudObj && !cloudLoaded) { cloudLoaded = true; pullCloud(); }
   pushCloud();
@@ -732,7 +738,7 @@ function renderNameScreen() {
     + "<div class='center'><input id='gname' type='text' placeholder='Your name' autocomplete='off' style='font-family:inherit;font-size:21px;font-weight:700;padding:13px 16px;border:3px solid #191930;border-radius:14px;width:82%;text-align:center;margin-top:12px'>"
     + "<div class='feedback' id='namefb'></div>"
     + "<button class='btn green' onclick='startWithName()'>Start Playing &#9654;</button>"
-    + "<p style='margin-top:20px'><button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button></p></div>";
+    + "<p style='margin-top:20px'>" + (hideStatusForHer() ? "" : "<button class='backlink' onclick='renderPin(\"nanna\")'>&#128202; Nanna Status</button> &nbsp;|&nbsp; <button class='backlink' onclick='renderPin(\"amma\")'>&#128202; Amma Status</button>") + "</p></div>";
   app().innerHTML = h; window.scrollTo(0, 0);
   var inp = document.getElementById("gname");
   inp.addEventListener("keydown", function(e) { if (e.key === "Enter") startWithName(); });
