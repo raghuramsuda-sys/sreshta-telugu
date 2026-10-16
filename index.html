@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Sreshta Telugu — All Weeks Game</title>
+<title>శ్రేష్టా's Telugu Adventure</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Telugu:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -108,8 +108,8 @@
 <body>
 <div class="wrap">
   <div class="topbar">
-    <div class="brand">SRESHTA TELUGU</div>
-    <div class="stars">&#9733; <span id="starcount">0</span></div>
+    <div class="brand">SRESHTA'S OWN WORLD</div>
+    <div class="stars">My Stars &#9733; <span id="starcount">0</span></div>
   </div>
   <div id="app"></div>
 </div>
@@ -218,7 +218,7 @@ function renderHome() {
   var actN = activeWeekN();
   if (openWeekN === null || openWeekN === undefined) openWeekN = actN;
   var doneWeeks = WEEKS.filter(weekDone).length;
-  var h = "<h1>&#127752; Bedtime Telugu</h1><p class='sub'>One day at bedtime \u2014 10 minutes.</p><div class='strip'></div>";
+  var h = "<h1>&#127752; \u0C36\u0C4D\u0C30\u0C47\u0C37\u0C4D\u0C1F\u0C3E's Telugu Adventure</h1><p class='sub'>My letters, my stars \u2014 and my letter to Nanna! &#9993;&#65038;</p><div class='strip'></div>";
   h += "<div class='journey'><div class='jt'>&#127752; My Rainbow Journey \u2014 " + doneWeeks + " of 10 weeks done</div><div class='segs'>";
   WEEKS.forEach(function(wk) {
     var dn = weekDone(wk), col = PALETTE[(wk.n-1) % PALETTE.length];
@@ -492,7 +492,7 @@ function changeName() {
   guestName = null; guestSlug = null; renderNameScreen();
 }
 function renderNameScreen() {
-  var h = "<h1>&#127752; Bedtime Telugu</h1><p class='sub'>Telugu reading &amp; writing game</p><div class='strip'></div>"
+  var h = "<h1>&#127752; \u0C36\u0C4D\u0C30\u0C47\u0C37\u0C4D\u0C1F\u0C3E's Telugu Adventure</h1><p class='sub'>Telugu reading &amp; writing game</p><div class='strip'></div>"
     + "<h2 style='margin-top:14px'>Who is playing?</h2><p class='sub'>Type your name once.<br>This phone will remember you.</p>"
     + "<div class='center'><input id='gname' type='text' placeholder='Your name' autocomplete='off' style='font-family:inherit;font-size:21px;font-weight:700;padding:13px 16px;border:3px solid #191930;border-radius:14px;width:82%;text-align:center;margin-top:12px'>"
     + "<div class='feedback' id='namefb'></div>"
