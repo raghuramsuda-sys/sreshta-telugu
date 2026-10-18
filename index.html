@@ -392,6 +392,61 @@ function recTrack(L, kind, picked) {
 var pcT = null;
 function pushCloudSoon() { if (pcT) return; pcT = setTimeout(function() { pcT = null; pushCloud(); }, 1500); }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); localStorage.setItem(KEY + "_ex", JSON.stringify(exams)); localStorage.setItem(KEY + "_tr", JSON.stringify(track)); localStorage.setItem(KEY + "_wt", JSON.stringify(wtrack)); localStorage.setItem(KEY + "_lt", JSON.stringify(letters)); localStorage.setItem(KEY + "_un", JSON.stringify(unlocks)); localStorage.setItem(KEY + "_rq", JSON.stringify(reqs)); } catch (e) {} }
+/* ===== Auto-save of the in-progress run (Ram's rule, Oct 18) =====
+   The current day/exam run is mirrored to localStorage on EVERY interaction,
+   so an accidental exit (back, tab close, Island button) resumes exactly
+   where she stopped. It is also mirrored to the cloud (payload field "run")
+   and merged back only when newer — see pullCloud. Records themselves
+   (finished days / exam results) still write exactly as before. */
+var runState = null;
+try { runState = JSON.parse(localStorage.getItem(KEY + "_run") || "null"); } catch (e) { runState = null; }
+var dayPhase = "learn", matchedLetters = [];
+function persistRun() { try { if (runState) localStorage.setItem(KEY + "_run", JSON.stringify(runState)); else localStorage.removeItem(KEY + "_run"); } catch (e) {} }
+function saveRun() {
+  if (examCur) {
+    try { runState = { kind: "exam", exId: examCur.ex.id, qs: JSON.parse(JSON.stringify(examCur.qs)), i: examCur.i, score: examCur.score, wrongLetters: (examCur.wrongLetters || []).slice(), ts: Date.now() }; }
+    catch (e) { return; }
+  } else if (curDay) {
+    runState = { kind: "day", dayId: curDay.id, phase: dayPhase, step: step, revealed: revealed, stars: stars, matchedLetters: matchedLetters.slice(), quizIdx: quizList.map(function(it) { return curDay.letters.indexOf(it); }), qr: qr, ts: Date.now() };
+  } else return;
+  persistRun();
+}
+function clearRun() { runState = null; persistRun(); }
+function runLabel() {
+  if (!runState) return "";
+  if (runState.kind === "exam") { var ex = examById(runState.exId); return ex ? ex.title : ""; }
+  var d = dayById(runState.dayId); return d ? (d.label + " \u2014 " + d.title) : "";
+}
+function resumeRun() {
+  if (!runState) { renderHome(); return; }
+  if (runState.kind === "exam") {
+    var ex = examById(runState.exId);
+    if (!ex || !runState.qs || !runState.qs.length) { clearRun(); renderHome(); return; }
+    curWeekN = ex.week;
+    var qs = JSON.parse(JSON.stringify(runState.qs));
+    /* examAnswer checks the tapped option with === against q.answer, so
+       re-link each answer to the identical object inside q.opts. */
+    qs.forEach(function(q) {
+      if (q.answer) { var a = JSON.stringify(q.answer); for (var j = 0; j < q.opts.length; j++) { if (JSON.stringify(q.opts[j]) === a) { q.answer = q.opts[j]; break; } } }
+    });
+    examCur = { ex: ex, qs: qs, i: runState.i || 0, score: runState.score || 0, wrongLetters: runState.wrongLetters || [] };
+    if (examCur.i >= examCur.qs.length) renderExamResult(); else renderExamQ();
+    return;
+  }
+  var d = dayById(runState.dayId);
+  if (!d) { clearRun(); renderHome(); return; }
+  curDay = d; curWeekN = 1;
+  WEEKS.forEach(function(wk) { if (wk.days && wk.days.indexOf(d) >= 0) curWeekN = wk.n; });
+  step = runState.step || 0; stars = runState.stars || 0; revealed = runState.revealed || {};
+  selected = null; matched = 0;
+  quizList = (runState.quizIdx || []).map(function(ix) { return d.letters[ix]; }).filter(Boolean);
+  qr = runState.qr || 0;
+  dayPhase = runState.phase || "learn";
+  document.getElementById("starcount").textContent = grandStars();
+  if (dayPhase === "quiz" && quizList.length) renderQuiz();
+  else if (dayPhase === "match") renderMatch();
+  else renderLearn();
+}
 var curDay = null, step = 0, stars = 0, revealed = {}, selected = null, matched = 0, matchTotal = 0, quizList = [], qr = 0, quizLock = false, openWeekN = null;
 function toast(msg) {
   var t = document.getElementById("toastbox");
@@ -455,6 +510,13 @@ function renderHome() {
     h += "<button class='wsq' style='background:" + col.bg + ";color:" + col.fg + ";" + extra + "' onclick='toggleWeek(" + wk.n + ")'><span class='n'>W" + wk.n + "</span><span class='s'>" + st + "</span></button>";
   });
   h += "</div>";
+  if (runState) {
+    var rl = runLabel();
+    if (rl) {
+      var rsub = runState.kind === "exam" ? ("Question " + ((runState.i || 0) + 1) + " of " + (runState.qs ? runState.qs.length : 0) + " \u2014 tap to continue your exam!") : "You stopped in the middle \u2014 tap to continue right where you left it!";
+      h += "<button class='daycard' style='margin-top:10px;border-color:#1E9E62' onclick='resumeRun()'><span class='dtop'><span class='daynum' style='background:#1E9E62;color:#fff'>&#9654; Continue</span><span class='badge done'>Saved &#10003;</span></span><span class='dayinfo'><span class='t'>" + rl + "</span><br><span class='l' style='font-size:13px'>" + rsub + "</span></span></button>";
+    }
+  }
   var wk = (openWeekN >= 1) ? WEEKS[openWeekN - 1] : null;
   if (wk) {
     h += "<div class='wpanel'><span class='wt2'>Week " + wk.n + " \u2014 " + wk.title + "</span><br><span class='wd'>" + wk.dates + (weekDone(wk) ? " \u2022 Completed &#9733;" + weekStars(wk) : "") + "</span>";
@@ -466,12 +528,14 @@ function renderHome() {
       h += "<div class='dgrid'>";
       wk.days.forEach(function(d, di) {
         var st2 = store[d.id], isToday = d.dateISO === todayISO(), locked = !dayUnlocked(wk, di);
+        var isRun = !!(runState && runState.kind === "day" && runState.dayId === d.id && !(st2 && st2.done));
         var db = st2 && st2.done ? "<span class='badge done'>&#10003; &#9733;" + (st2.stars||0) + "</span>"
                : locked ? "<span class='badge soon'>&#128274;</span>"
+               : isRun ? "<span class='badge' style='background:#1E9E62;color:#fff'>&#9654; Continue</span>"
                : isToday ? "<span class='badge' style='background:#FFD166;color:#332300'>Today</span>" : "<span class='badge soon'>Play</span>";
         var dc = PALETTE[(ALLDAYS.indexOf(d)) % PALETTE.length];
         var lettersRow = locked ? "&#128274; Locked" : d.letters.map(function(x){return x.L;}).join(" ");
-        var click = locked ? "lockedDay(\"" + d.label + "\", \"" + dayLockReason(wk, di) + "\")" : "startDay(\"" + d.id + "\")";
+        var click = locked ? "lockedDay(\"" + d.label + "\", \"" + dayLockReason(wk, di) + "\")" : (isRun ? "resumeRun()" : "startDay(\"" + d.id + "\")");
         h += "<button class='daycard' onclick='" + click + "'><span class='dtop'><span class='daynum' style='background:" + dc.bg + ";color:" + dc.fg + "'>" + d.label + "</span>" + db + "</span><span class='dayinfo'><span class='t'>" + d.title + "</span><br><span class='l'>" + lettersRow + "</span></span></button>";
       });
       h += "</div>";
@@ -494,9 +558,10 @@ function startDay(id) {
   var d = dayById(id); if (!d) return;
   curDay = d; curWeekN = 1;
   WEEKS.forEach(function(wk) { if (wk.days && wk.days.indexOf(d) >= 0) curWeekN = wk.n; });
-  step = 0; stars = 0; revealed = {}; matched = 0; selected = null; renderLearn();
+  step = 0; stars = 0; revealed = {}; matched = 0; selected = null; quizList = []; qr = 0; dayPhase = "learn"; matchedLetters = []; renderLearn();
 }
 function renderLearn() {
+  dayPhase = "learn";
   var d = curDay, it = d.letters[step];
   var h = dots(d.letters.length + 3, step) + "<button class='backlink' onclick='renderHome()'>&#8592; All Weeks</button>"
     + "<h2>" + d.label + " &mdash; Letter " + (step+1) + " of " + d.letters.length + "</h2><p class='sub'>Tap the big letter!</p>"
@@ -507,18 +572,21 @@ function renderLearn() {
     + "<div class='center'><button class='hear' onclick='hear()'>&#128266; Hear It</button><br>"
     + "<button class='btn' onclick='nextLearn()'>" + (step === d.letters.length - 1 ? "Play Match Game \u25B6" : "Next Letter \u25B6") + "</button></div>";
   app().innerHTML = h; window.scrollTo(0,0);
+  saveRun();
 }
 function hear() { var it = curDay.letters[step]; playClip("both", it.L); }
 function reveal(ev) {
   var it = curDay.letters[step], big = document.getElementById("big");
   big.classList.remove("pop"); void big.offsetWidth; big.classList.add("pop");
   document.getElementById("wb").classList.add("show"); playClip(it.w ? "word" : "both", it.w ? it.word : it.L);
-  if (!revealed[step]) { revealed[step] = 1; addStar(ev ? ev.clientX : null, ev ? ev.clientY : null); }
+  if (!revealed[step]) { revealed[step] = 1; addStar(ev ? ev.clientX : null, ev ? ev.clientY : null); saveRun(); }
 }
-function nextLearn() { step++; if (step < curDay.letters.length) renderLearn(); else renderMatch(); }
+function nextLearn() { step++; saveRun(); if (step < curDay.letters.length) renderLearn(); else renderMatch(); }
 function shuffled(arr, seed) { var a = arr.slice(); for (var i=a.length-1;i>0;i--){ var j=(seed*(i+3)+i*7)%(i+1); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 function renderMatch() {
+  dayPhase = "match";
   matched = 0; selected = null;
+  matchedLetters = (runState && runState.kind === "day" && curDay && runState.dayId === curDay.id && runState.matchedLetters) ? runState.matchedLetters.slice() : [];
   var d = curDay, di = ALLDAYS.indexOf(d);
   var h = dots(d.letters.length + 3, d.letters.length) + "<button class='backlink' onclick='renderHome()'>&#8592; All Weeks</button>"
     + "<h2>Match Game</h2><p class='sub'>" + (d.letters[0] && d.letters[0].w ? "Match each word to its MEANING!<br>Tap a word, then tap its meaning." : "Drag the letter to its word.<br>Or tap a letter, then tap its word.") + "</p><div class='slots' id='slots'></div><div class='tiles' id='tiles'></div>"
@@ -547,6 +615,17 @@ function renderMatch() {
     });
     tiles.appendChild(t);
   });
+  /* restore any matches saved before an accidental exit */
+  matchedLetters.forEach(function(L) {
+    var slot = null;
+    slots.querySelectorAll(".slot").forEach(function(s) { if (s.dataset.answer === L) slot = s; });
+    if (!slot || slot.classList.contains("done")) return;
+    slot.classList.add("done"); slot.querySelector(".ans").textContent = L;
+    var tile = document.getElementById("tile_" + L); if (tile) tile.classList.add("used");
+    matched++;
+  });
+  if (matchTotal > 0 && matched === matchTotal) { document.getElementById("matchfb").textContent = "All matched! Superb!"; document.getElementById("matchnext").style.display = "inline-block"; }
+  saveRun();
 }
 function tryPlace(slot, letter) {
   var fb = document.getElementById("matchfb");
@@ -554,10 +633,11 @@ function tryPlace(slot, letter) {
   if (letter === slot.dataset.answer) {
     slot.classList.add("done"); slot.querySelector(".ans").textContent = letter;
     var tile = document.getElementById("tile_" + letter); if (tile) tile.classList.add("used");
-    selected = null; matched++;
+    selected = null; matched++; matchedLetters.push(letter);
     var r = slot.getBoundingClientRect(); addStar(r.left + r.width/2, r.top + 30); playClip(curDay && curDay.letters[0] && curDay.letters[0].w ? "word" : "letter", letter);
     fb.textContent = matched === matchTotal ? "All matched! Superb!" : "Correct! Well done!";
     if (matched === matchTotal) document.getElementById("matchnext").style.display = "inline-block";
+    saveRun();
   } else {
     recTrack(slot.dataset.answer, "m", letter); save(); pushCloudSoon();
     fb.textContent = "Try again \u2014 you can do it!";
@@ -570,6 +650,7 @@ function startQuiz() {
   qr = 0; renderQuiz();
 }
 function renderQuiz() {
+  dayPhase = "quiz";
   quizLock = false;
   var d = curDay, it = quizList[qr];
   var others = d.letters.filter(function(x){ return x !== it; });
@@ -596,11 +677,12 @@ function renderQuiz() {
     });
     host.appendChild(b);
   });
+  saveRun();
 }
 function renderFinish() {
   var d = curDay;
   var prev = store[d.id] && store[d.id].stars || 0;
-  store[d.id] = { done: true, stars: Math.max(prev, stars), ts: Date.now() }; save(); pushCloud();
+  store[d.id] = { done: true, stars: Math.max(prev, stars), ts: Date.now() }; save(); clearRun(); pushCloud();
   document.getElementById("starcount").textContent = grandStars();
   openWeekN = null;
   var h = "<div class='center' style='font-size:38px'>&#127769;</div><h1>Superb, Sreshta!</h1>"
@@ -673,7 +755,7 @@ window.__setCloud = function(o) {
 function pushCloud() {
   if (!guestSlug) return;
   if (!cloudPulled) { pushQueued = true; return; }
-  var payload = { name: guestName, days: store, exams: exams, stats: track, wtrack: wtrack, letters: letters, unlocks: unlocks, reqs: reqs, totalStars: grandTotal(), resetAt: (function() { try { return localStorage.getItem(KEY + "_rs") || null; } catch (e) { return null; } })(), lastPlayed: new Date().toISOString() };
+  var payload = { name: guestName, days: store, exams: exams, stats: track, wtrack: wtrack, letters: letters, unlocks: unlocks, reqs: reqs, totalStars: grandTotal(), run: runState, resetAt: (function() { try { return localStorage.getItem(KEY + "_rs") || null; } catch (e) { return null; } })(), lastPlayed: new Date().toISOString() };
   if (cloudObj) cloudObj.save(guestSlug, payload).catch(function(){});
   else pendingSave = { slug: guestSlug, payload: payload };
 }
@@ -687,6 +769,7 @@ function pullCloud() {
       try { seenRs = localStorage.getItem(KEY + "_rs") || ""; } catch (e) {}
       if (String(d.resetAt) > seenRs) {
         store = {}; exams = {}; track = {}; wtrack = {}; letters = []; unlocks = {}; reqs = {};
+        runState = null; persistRun();
         try { localStorage.setItem(KEY + "_rs", String(d.resetAt)); } catch (e) {}
         save(); pushCloud();
         if (!curDay && !examCur) renderHome();
@@ -743,6 +826,17 @@ function pullCloud() {
     }
     if (d.unlocks) { for (var u in d.unlocks) { if (d.unlocks[u] && !unlocks[u]) { unlocks[u] = true; changed = true; } } }
     if (d.reqs) { if (JSON.stringify(d.reqs) !== JSON.stringify(reqs)) { reqs = d.reqs; changed = true; } }
+    /* Run merge: adopt the cloud run only when it is newer than the local
+       one — and never when it predates the player's resetAt wipe, so a
+       reset player can never resurrect a run. A newer local run is pushed
+       back up so the cloud converges to it. */
+    var rsMs = 0;
+    try { rsMs = Date.parse(localStorage.getItem(KEY + "_rs") || "") || 0; } catch (e) {}
+    if (d.resetAt) { var dRs = Date.parse(d.resetAt); if (!isNaN(dRs) && dRs > rsMs) rsMs = dRs; }
+    if (d.run && d.run.ts) {
+      if (d.run.ts > rsMs && (!runState || d.run.ts > (runState.ts || 0))) { runState = d.run; persistRun(); changed = true; }
+      else if (runState && (runState.ts || 0) > d.run.ts) { changed = true; }
+    }
     if (changed) { save(); pushCloud(); if (!curDay && !examCur) renderHome(); }
   }).catch(function(){}).then(function() {
     cloudPulled = true;
@@ -829,7 +923,7 @@ function resetGuest(slug, btn) {
   btn.disabled = true; btn.textContent = "Resetting...";
   var nm = slug;
   for (var i = 0; i < adminCache.length; i++) if (adminCache[i].id === slug) nm = adminCache[i].name || slug;
-  cloudObj.save(slug, { name: nm, days: {}, exams: {}, stats: {}, wtrack: {}, letters: [], unlocks: {}, reqs: {}, totalStars: 0, resetAt: new Date().toISOString(), lastPlayed: new Date().toISOString() }).then(function() {
+  cloudObj.save(slug, { name: nm, days: {}, exams: {}, stats: {}, wtrack: {}, letters: [], unlocks: {}, reqs: {}, run: null, totalStars: 0, resetAt: new Date().toISOString(), lastPlayed: new Date().toISOString() }).then(function() {
     toast(nm + " reset - fresh start!");
     try { renderAdminList(); } catch (e) {}
   }).catch(function() { btn.disabled = false; btn.textContent = "Failed - try again"; });
@@ -1118,6 +1212,11 @@ function examCards(wk) {
       }
       return;
     }
+    var exRun = !!(runState && runState.kind === "exam" && runState.exId === ex.id);
+    if (exRun && un) {
+      h += "<button class='daycard' style='margin-top:8px;border-color:#1E9E62' onclick='resumeRun()'><span class='dtop'><span class='daynum' style='background:#1E9E62;color:#fff'>&#128221; " + ex.title + "</span><span class='badge done'>&#9654; Continue</span></span><span class='dayinfo'><span class='t'>Question " + ((runState.i || 0) + 1) + " of " + (runState.qs ? runState.qs.length : ex.n) + " \u2014 tap to continue your exam!</span><br><span class='l' style='font-size:13px'>" + ex.sub + " \u2022 your answers so far are saved</span></span></button>";
+      return;
+    }
     if (r && r.passed) {
       h += "<button class='daycard' style='margin-top:8px;border-color:#1E9E62' onclick='startExam(\"" + ex.id + "\")'><span class='dtop'><span class='daynum' style='background:#1E9E62;color:#fff'>&#128221; " + ex.title + "</span><span class='badge done'>&#10003; " + r.best + "%</span></span><span class='dayinfo'><span class='t'>" + (ex.zone ? "Tap to play again \u2014 beat your best!" : "Passed! Tap to take again") + "</span><br><span class='l' style='font-size:13px'>" + ex.sub + " \u2022 Best score " + r.best + "%</span></span></button>";
     } else if (un) {
@@ -1292,6 +1391,7 @@ function renderExamQ() {
     b.addEventListener("click", function(ev) { examAnswer(b, o, ev); });
     host.appendChild(b);
   });
+  saveRun();
 }
 function examAnswer(btn, chosen, ev) {
   if (examLock) return; examLock = true;
@@ -1299,9 +1399,10 @@ function examAnswer(btn, chosen, ev) {
   recTrack(q.it.L, "ea");
   if (correct) { examCur.score++; btn.style.background = "#1E9E62"; btn.style.color = "#fff"; addStar(ev.clientX, ev.clientY); document.getElementById("examfb").textContent = "Correct!"; }
   else { recTrack(q.it.L, "ew", chosen && chosen.yn ? null : chosen.L); examCur.wrongLetters.push(q.it.L); btn.style.background = "#E63946"; btn.style.color = "#fff"; document.getElementById("examfb").textContent = "Wrong \u2014 next question"; }
-  save(); pushCloudSoon();
+  examCur.i++;
+  save(); saveRun(); pushCloudSoon();
   setTimeout(function() {
-    examCur.i++;
+    if (!examCur) return;
     if (examCur.i < examCur.qs.length) renderExamQ(); else renderExamResult();
   }, 600);
 }
@@ -1311,7 +1412,7 @@ function renderExamResult() {
   var prev = exams[ex.id] || { best: 0, tries: 0 };
   var earned = ex.zone ? Math.round(pct / 10) : 0;
   exams[ex.id] = { best: Math.max(prev.best || 0, pct), last: pct, tries: (prev.tries || 0) + 1, passed: !!(prev.passed || passed), stars: ex.zone ? Math.max(prev.stars || 0, earned) : (prev.stars || 0), hist: ((prev.hist || []).concat([pct])).slice(-8), lastWrong: examCur.wrongLetters.slice(), ts: Date.now() };
-  save(); pushCloud();
+  save(); clearRun(); pushCloud();
   var isWeekly = ex.id.slice(-2) === "e3";
   var h = "<div class='center' style='font-size:38px'>" + (passed ? "&#127881;" : "&#128170;") + "</div>"
     + "<h1>" + (ex.zone ? (pct >= PASS_MARK ? "Superb!" : "Good try!") : (passed ? "Passed!" : "Almost!")) + "</h1>"
