@@ -645,7 +645,10 @@ function tryPlace(slot, letter) {
   }
 }
 function startQuiz() {
-  var L = curDay.letters;
+  /* a letter item joins the quiz only if its letter can honestly be asked
+     about: the word starts with it, or the letter hides inside the word.
+     (యం in యముడు is neither — it is never quizzed with a false question.) */
+  var L = curDay.letters.filter(function(it) { return it.w || !it.word || it.word.indexOf(it.L) >= 0; });
   quizList = L.length > 6 ? shuffled(L, (Date.now() % 89) + 3).slice(0, 5) : L.slice();
   qr = 0; renderQuiz();
 }
@@ -654,10 +657,14 @@ function renderQuiz() {
   quizLock = false;
   var d = curDay, it = quizList[qr];
   var others = d.letters.filter(function(x){ return x !== it; });
+  /* "starts with" is asked ONLY when the word truly starts with the letter;
+     hides-inside letters (the teaching note's own framing) are asked as hiding */
+  var askQ = "Which letter does it start with?";
+  if (!it.w && it.word && it.word.indexOf(it.L) !== 0) askQ = (it.note && it.note.indexOf("end") >= 0) ? "Which letter hides at the end of this word?" : "Which letter hides inside this word?";
   var opts = shuffled([it].concat(others.slice(0,3)), qr + 3);
   var h = dots(d.letters.length + 3, d.letters.length + 1) + "<button class='backlink' onclick='renderHome()'>&#8592; All Weeks</button>"
     + "<h2>Quiz &mdash; " + (qr+1) + " of " + quizList.length + "</h2>"
-    + "<div class='quizword'>" + it.word + "</div><p class='sub'>" + (it.w ? "What does this word MEAN?" : it.trans + " \u2014 " + it.mean + "<br>Which letter does it start with?") + "</p>"
+    + "<div class='quizword'>" + it.word + "</div><p class='sub'>" + (it.w ? "What does this word MEAN?" : it.trans + " \u2014 " + it.mean + "<br>" + askQ) + "</p>"
     + "<div class='center'><button class='hear' onclick='playClip(\"word\", \"" + it.word + "\")'>&#128266; Hear the Word</button></div>"
     + "<div class='opts' id='quizopts'></div><div class='feedback' id='quizfb'></div>";
   app().innerHTML = h; window.scrollTo(0,0); playClip("word", it.word);
@@ -1190,8 +1197,8 @@ var FAMILIES = [["\u0C15","\u0C16","\u0C17","\u0C18","\u0C19"],["\u0C1A","\u0C1B
 function familyOf(L) { for (var i = 0; i < FAMILIES.length; i++) if (FAMILIES[i].indexOf(L) >= 0) return FAMILIES[i]; return null; }
 var CONFUSE = { "\u0C07": ["\u0C08"], "\u0C08": ["\u0C07"], "\u0C09": ["\u0C0A"], "\u0C0A": ["\u0C09"], "\u0C0E": ["\u0C0F"], "\u0C0F": ["\u0C0E"], "\u0C12": ["\u0C13", "\u0C14"], "\u0C13": ["\u0C12", "\u0C14"], "\u0C14": ["\u0C13", "\u0C12"], "\u0C10": ["\u0C05", "\u0C0E"], "\u0C05\u0C02": ["\u0C05"], "\u0C15": ["\u0C16"], "\u0C16": ["\u0C15", "\u0C17"], "\u0C17": ["\u0C18", "\u0C16"], "\u0C18": ["\u0C17"], "\u0C1A": ["\u0C1B"], "\u0C1B": ["\u0C1A", "\u0C1C"], "\u0C1C": ["\u0C1D", "\u0C1B"], "\u0C1D": ["\u0C1C"], "\u0C1F": ["\u0C20", "\u0C21"], "\u0C20": ["\u0C1F"], "\u0C21": ["\u0C22", "\u0C1F"], "\u0C22": ["\u0C21"], "\u0C23": ["\u0C28"], "\u0C24": ["\u0C25"], "\u0C25": ["\u0C24", "\u0C26"], "\u0C26": ["\u0C27"], "\u0C27": ["\u0C26"], "\u0C2A": ["\u0C2B"], "\u0C2B": ["\u0C2A", "\u0C2C"], "\u0C2C": ["\u0C2D"], "\u0C2D": ["\u0C2C"], "\u0C36": ["\u0C37", "\u0C38"], "\u0C37": ["\u0C36", "\u0C38"], "\u0C38": ["\u0C36", "\u0C37"], "\u0C32": ["\u0C33"], "\u0C33": ["\u0C32"], "\u0C15\u0C4D\u0C37": ["\u0C15"] };
 function examPool(ex) {
-  var seen = {}, pool = [];
-  ex.dayIds.forEach(function(id) { var d = dayById(id); if (d) d.letters.forEach(function(it) { if (!seen[it.L]) { seen[it.L] = 1; pool.push(it); } }); });
+  var seen = {}, seenW = {}, pool = [];
+  ex.dayIds.forEach(function(id) { var d = dayById(id); if (d) d.letters.forEach(function(it) { if (!seen[it.L] && !(it.word && seenW[it.word])) { seen[it.L] = 1; if (it.word) seenW[it.word] = 1; pool.push(it); } }); });
   return pool;
 }
 function examCards(wk) {
@@ -1246,7 +1253,14 @@ function buildQ(ex, it, pool, type, i) {
   }
   if (type === "yn") {
     var truthful = (i % 2 === 0);
-    var shownIt = truthful ? it : shuffled(others, i * 3 + 1)[0];
+    var shownIt = it;
+    if (!truthful) {
+      /* a FALSE statement must really be false: the shown letter/syllable must
+         NOT be the one this word starts with (it.first for word items, else it.L) */
+      var keyY = it.first || it.L;
+      var candY = others.filter(function(x) { return (x.w ? x.first : x.L) !== keyY; });
+      shownIt = shuffled(candY.length ? candY : others, i * 3 + 1)[0];
+    }
     var shown = { L: shownIt.w ? shownIt.first : shownIt.L, yn: 1 };
     var yes = { L: "\u2714 Yes", yn: 1 }, no = { L: "\u2716 No", yn: 1 };
     return { it: it, type: "yn", shown: shown, opts: [yes, no], answer: truthful ? yes : no };
@@ -1264,6 +1278,10 @@ function buildQ(ex, it, pool, type, i) {
     var twinsH = others.filter(function(x) { return baseOf(x.L) === baseOf(it.L); });
     var restH = shuffled(others.filter(function(x) { return twinsH.indexOf(x) < 0; }), i * 7 + 3);
     var disH = shuffled(twinsH, i + 3).slice(0, 2).concat(restH).slice(0, 3);
+    /* displayed options are WORDS: the same word may never appear twice */
+    var seenHw = {}; seenHw[it.word] = 1;
+    disH = disH.filter(function(o) { if (seenHw[o.word]) return false; seenHw[o.word] = 1; return true; });
+    if (disH.length < 3) shuffled(others, i * 7 + 3).forEach(function(o) { if (disH.length < 3 && disH.indexOf(o) < 0 && !seenHw[o.word]) { seenHw[o.word] = 1; disH.push(o); } });
     return { it: it, type: "hearw", opts: shuffled([it].concat(disH), i + 11), answer: it };
   }
   if (type === "hearW" || type === "hearL" || type === "look") {
@@ -1293,7 +1311,12 @@ function buildQ(ex, it, pool, type, i) {
   if (type === "clu" || type === "wclu") {
     if (!it.cl) return buildQ(ex, it, pool, "mean", i);
     var seenCl = {}; var disC = [];
-    shuffled(others, i * 3 + 7).forEach(function(o) { if (o.cl && o.cl !== it.cl && !seenCl[o.cl]) { seenCl[o.cl] = 1; disC.push(o); } });
+    shuffled(others, i * 3 + 7).forEach(function(o) {
+      if (!o.cl || o.cl === it.cl || seenCl[o.cl]) return;
+      if (type === "clu" && it.word && it.word.indexOf(o.cl) >= 0) return; /* that ottu hides in the target word too — it would also be correct */
+      if (type === "wclu" && o.word && o.word.indexOf(it.cl) >= 0) return; /* that word has the asked ottu too — it would also be correct */
+      seenCl[o.cl] = 1; disC.push(o);
+    });
     return { it: it, type: type, opts: shuffled([it].concat(disC.slice(0, 3)), i + 29), answer: it };
   }
   if (type === "sent") {
@@ -1301,18 +1324,29 @@ function buildQ(ex, it, pool, type, i) {
     var target = null;
     allWordItems().forEach(function(x) { if (x.L === it.blank) target = x; });
     if (!target) return buildQ(ex, it, pool, "mean", i);
-    var othersW = allWordItems().filter(function(x) { return x !== target; });
-    var disS = shuffled(othersW, i * 7 + 3).slice(0, 3);
+    /* options display WORDS: one word string may appear only once (the same
+       word is taught again in later weeks, so dedupe by word, not by item) */
+    var seenS = {}; seenS[target.word] = 1; var disS = [];
+    shuffled(allWordItems(), i * 7 + 3).forEach(function(x) { if (!seenS[x.word]) { seenS[x.word] = 1; disS.push(x); } });
     return { it: it, type: "sent", text: it.word.replace(it.blank, "_____"), opts: shuffled([target].concat(disS), i + 23), answer: target };
   }
   if (type === "mean" || type === "wmean") {
-    var disW = shuffled(others, i * 7 + 3).slice(0, 3);
-    return { it: it, type: type, opts: shuffled([it].concat(disW), i + 11), answer: it };
+    /* meanings must be unique: a distractor with the SAME meaning as the
+       target would also be a correct answer (for wmean it would also mean
+       the prompt), so two items sharing a meaning may never co-occur */
+    var seenMn = {}; if (it.mean) seenMn[it.mean] = 1; var disW = [];
+    shuffled(others, i * 7 + 3).forEach(function(o) { if (o.mean && !seenMn[o.mean]) { seenMn[o.mean] = 1; disW.push(o); } });
+    if (disW.length < 2) return buildQ(ex, it, pool, "w2l", i);
+    return { it: it, type: type, opts: shuffled([it].concat(disW.slice(0, 3)), i + 11), answer: it };
   }
   if (type === "first") {
     if (!it.first) return buildQ(ex, it, pool, "w2l", i);
-    var disF = shuffled(others, i * 5 + 2).slice(0, 3);
-    return { it: it, type: "first", opts: shuffled([it].concat(disF), i + 19), answer: it };
+    /* a distractor whose first syllable equals the target's would ALSO be a
+       correct answer, and no two options may display the same syllable */
+    var seenF = {}; seenF[it.first] = 1; var disF = [];
+    shuffled(others, i * 5 + 2).forEach(function(o) { if (o.first && !seenF[o.first]) { seenF[o.first] = 1; disF.push(o); } });
+    if (disF.length < 2) return buildQ(ex, it, pool, "w2l", i);
+    return { it: it, type: "first", opts: shuffled([it].concat(disF.slice(0, 3)), i + 19), answer: it };
   }
   var dis3;
   if (ex.week >= 3) {
@@ -1327,6 +1361,12 @@ function buildQ(ex, it, pool, type, i) {
     dis3 = shuffled(famItems2, i + 3).slice(0, 2).concat(rest3).slice(0, 3);
   } else {
     dis3 = shuffled(others, i * 7 + 3).slice(0, 3);
+  }
+  /* if the options display WORDS (l2w), the same word may never appear twice */
+  if (type === "l2w") {
+    var seenW3 = {}; seenW3[it.word] = 1;
+    dis3 = dis3.filter(function(o) { if (seenW3[o.word]) return false; seenW3[o.word] = 1; return true; });
+    if (dis3.length < 3) shuffled(others, i * 7 + 3).forEach(function(o) { if (dis3.length < 3 && dis3.indexOf(o) < 0 && !seenW3[o.word]) { seenW3[o.word] = 1; dis3.push(o); } });
   }
   return { it: it, type: type, opts: shuffled([it].concat(dis3), i + 11), answer: it };
 }
