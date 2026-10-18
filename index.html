@@ -658,7 +658,7 @@ var adminOpenW = 0;
 function toggleAdminWeek(i, n) { adminOpenW = n; renderAdminDetail(i); }
 function closeAdminWeek(i) { adminOpenW = 0; renderAdminDetail(i); }
 function openGuest(i) { adminOpenW = 0; renderAdminDetail(i); }
-var guestName = null, guestSlug = null, cloudObj = null, pendingSave = null, cloudLoaded = false, adminCache = [];
+var guestName = null, guestSlug = null, cloudObj = null, pendingSave = null, cloudLoaded = false, cloudPulled = false, pushQueued = false, adminCache = [];
 try { guestName = localStorage.getItem("stg_name"); } catch (e) {}
 function esc(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function slugify(n) { return n.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^\p{L}\p{N}-]/gu, ""); }
@@ -666,18 +666,20 @@ function grandTotal() { var t = 0; for (var k in store) t += (store[k].stars || 
 window.__setCloud = function(o) {
   cloudObj = o;
   if (o) {
-    if (pendingSave) { var ps = pendingSave; pendingSave = null; o.save(ps.slug, ps.payload).catch(function(){}); }
     if (guestSlug && !cloudLoaded) { cloudLoaded = true; pullCloud(); }
+    else if (pendingSave) { var ps = pendingSave; pendingSave = null; o.save(ps.slug, ps.payload).catch(function(){}); }
   }
 };
 function pushCloud() {
   if (!guestSlug) return;
+  if (!cloudPulled) { pushQueued = true; return; }
   var payload = { name: guestName, days: store, exams: exams, stats: track, wtrack: wtrack, letters: letters, unlocks: unlocks, reqs: reqs, totalStars: grandTotal(), resetAt: (function() { try { return localStorage.getItem(KEY + "_rs") || null; } catch (e) { return null; } })(), lastPlayed: new Date().toISOString() };
   if (cloudObj) cloudObj.save(guestSlug, payload).catch(function(){});
   else pendingSave = { slug: guestSlug, payload: payload };
 }
 function pullCloud() {
   if (!cloudObj || !guestSlug) return;
+  cloudPulled = false;
   cloudObj.load(guestSlug).then(function(d) {
     if (!d) return;
     if (d.resetAt) {
@@ -742,7 +744,10 @@ function pullCloud() {
     if (d.unlocks) { for (var u in d.unlocks) { if (d.unlocks[u] && !unlocks[u]) { unlocks[u] = true; changed = true; } } }
     if (d.reqs) { if (JSON.stringify(d.reqs) !== JSON.stringify(reqs)) { reqs = d.reqs; changed = true; } }
     if (changed) { save(); pushCloud(); if (!curDay && !examCur) renderHome(); }
-  }).catch(function(){});
+  }).catch(function(){}).then(function() {
+    cloudPulled = true;
+    if (pushQueued) { pushQueued = false; pushCloud(); }
+  });
 }
 function hideStatusForHer() {
   if (guestSlug === "sreshta") return true;
